@@ -1,11 +1,20 @@
-# Prevent Git from trying to normalize line endings for node_modules and binaries
+# Prevent Git from trying to normalize line endings for node_modules and lock files
+# Mark as binary/non-text so Git ignores EOL conversion warnings
+node_modules/ -text
 node_modules/** -text
+**/node_modules/** -text
+*-lock.json -text
+package-lock.json -text
+
+# Prevent normalization for executables and binaries
 *.bin -text
 *.exe -text
 *.dll -text
 *.pak -text
+.bin/** -text
+.ps1 -text
 
-# Normalize text files
+# Normalize only committed source files to LF
 *.js text eol=lf
 *.jsx text eol=lf
 *.json text eol=lf
@@ -14,3 +23,6 @@ node_modules/** -text
 *.sh text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+
