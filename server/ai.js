@@ -10,25 +10,31 @@ let genAI, model;
 try {
   genAI = new GoogleGenerativeAI(process.env.Gemini_Api_key);
   model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  console.log("✓ Generative AI model initialized successfully");
 } catch (e) {
-  console.warn("Generative AI client not initialized:", e && e.message ? e.message : e);
+  console.error("✗ Failed to initialize Generative AI:", e && e.message ? e.message : e);
 }
 
 async function generateAIResponse(prompt) {
   if (!model || !model.generateContent) {
-    // Fallback: return a simple echo when the model isn't available.
-    return `Fallback reply: ${prompt}`;
+    console.warn("⚠ Model not available. Check API key and connection.");
+    return "I'm having trouble connecting to the AI service. Please try again.";
   }
 
-  const result = await model.generateContent(prompt);
-  // Guard access to nested properties
-  if (result && result.response && typeof result.response.text === "function") {
-    return result.response.text();
+  try {
+    const result = await model.generateContent(prompt);
+    // Guard access to nested properties
+    if (result && result.response && typeof result.response.text === "function") {
+      return result.response.text();
+    }
+    if (result && result.response && typeof result.response === "string") {
+      return result.response;
+    }
+    return String(result);
+  } catch (error) {
+    console.error("✗ API Error:", error.message || error);
+    throw error;
   }
-  if (result && result.response && typeof result.response === "string") {
-    return result.response;
-  }
-  return String(result);
 }
 
 module.exports = generateAIResponse;

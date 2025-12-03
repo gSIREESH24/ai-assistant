@@ -6,5 +6,8 @@
     "client",
     "server",
     "electron"
-  ]
+  ],
+  "dependencies": {
+    "active-win": "^8.2.1"
+  }
 }
