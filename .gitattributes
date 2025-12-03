@@ -1,0 +1,16 @@
+# Prevent Git from trying to normalize line endings for node_modules and binaries
+node_modules/** -text
+*.bin -text
+*.exe -text
+*.dll -text
+*.pak -text
+
+# Normalize text files
+*.js text eol=lf
+*.jsx text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
