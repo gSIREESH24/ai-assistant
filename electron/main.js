@@ -1,17 +1,28 @@
 // electron/main.js
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
-const activeWin = require("active-win");     // <── ADDED
-const fs = require("fs");                    // <── ADDED for saving usage
+const activeWin = require("active-win");
+const fs = require("fs");
 
 let win;
 
-// ----------- USAGE TRACKING DATA ----------------
-let usage = {};  // Example: { "Chrome": 125, "Code": 522 }
+// ----------- USAGE TRACKING DATA (AGGREGATED) ----------------
+// Example: { "Chrome": 125, "Code": 522 } – total seconds per app
+let usage = {};
 let lastApp = null;
 let lastTimestamp = Date.now();
 
-// Save file location
+// ----------- SESSION / TIMELINE TRACKING (DETAILED) ----------
+// A single "session" is controlled from the renderer by a button.
+// We keep every interval: which app, when it started & ended, and duration.
+let trackingActive = false;
+let sessionStart = null;
+let sessionEnd = null;
+let timeline = []; // { app, start, end, durationSec }
+let segmentApp = null;
+let segmentStart = null;
+
+// Save file location for aggregated usage
 const USAGE_FILE = path.join(app.getPath("userData"), "usage.json");
 
 // Load saved usage data
@@ -34,6 +45,28 @@ function saveUsageData() {
   }
 }
 
+// Helper to close current segment (for session timeline)
+function closeCurrentSegment(endTime) {
+  if (!trackingActive || !segmentApp || !segmentStart) return;
+
+  const durationSec = Math.max(
+    0,
+    Math.floor((endTime - segmentStart) / 1000)
+  );
+
+  if (durationSec > 0) {
+    timeline.push({
+      app: segmentApp,
+      start: segmentStart,
+      end: endTime,
+      durationSec,
+    });
+  }
+
+  segmentApp = null;
+  segmentStart = null;
+}
+
 // Poll active window every second
 async function trackActiveWindow() {
   try {
@@ -41,9 +74,9 @@ async function trackActiveWindow() {
     const now = Date.now();
 
     // Identify app
-    const appName =
-      info?.owner?.name || info?.title || "Unknown App";
+    const appName = info?.owner?.name || info?.title || "Unknown App";
 
+    // ---- Aggregated usage (always-on) ----
     if (lastApp) {
       const diff = Math.floor((now - lastTimestamp) / 1000);
       if (diff > 0) {
@@ -53,6 +86,20 @@ async function trackActiveWindow() {
 
     lastApp = appName;
     lastTimestamp = now;
+
+    // ---- Detailed session tracking (controlled by button) ----
+    if (trackingActive) {
+      // If this is the first segment of the session
+      if (!segmentApp) {
+        segmentApp = appName;
+        segmentStart = now;
+      } else if (segmentApp !== appName) {
+        // App changed: close previous segment and start new one
+        closeCurrentSegment(now);
+        segmentApp = appName;
+        segmentStart = now;
+      }
+    }
 
     // Send live update to renderer
     if (win && win.webContents) {
@@ -121,6 +168,45 @@ function createWindow() {
     event.sender.send("usage-snapshot", {
       current: lastApp,
       usage,
+    });
+  });
+
+  // ---------------- SESSION TRACKING CONTROL ----------------
+  ipcMain.on("start-tracking-session", () => {
+    trackingActive = true;
+    sessionStart = Date.now();
+    sessionEnd = null;
+    timeline = [];
+    segmentApp = null;
+    segmentStart = null;
+  });
+
+  ipcMain.on("stop-tracking-session", (event) => {
+    if (!trackingActive) return;
+
+    const now = Date.now();
+    trackingActive = false;
+    // Close any open segment and mark session end
+    closeCurrentSegment(now);
+    sessionEnd = now;
+
+    // Send final data back to renderer that requested the stop
+    if (event && event.sender) {
+      event.sender.send("tracking-data", {
+        trackingActive,
+        sessionStart,
+        sessionEnd,
+        timeline,
+      });
+    }
+  });
+
+  ipcMain.on("request-tracking-data", (event) => {
+    event.sender.send("tracking-data", {
+      trackingActive,
+      sessionStart,
+      sessionEnd,
+      timeline,
     });
   });
 }

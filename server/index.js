@@ -25,11 +25,28 @@ mongoose
   .then(() => console.log("MongoDB connected"))
   .catch((err) => console.log(err));
 
-// Start server
-app.listen(5000, () => {
-  console.log("Server running on port 5000");
-});
+// Simple schema for tracking sessions
+const trackingSessionSchema = new mongoose.Schema(
+  {
+    sessionStart: { type: Date, required: true },
+    sessionEnd: { type: Date, required: true },
+    timeline: [
+      {
+        app: String,
+        start: Date,
+        end: Date,
+        durationSec: Number,
+      },
+    ],
+  },
+  { timestamps: true }
+);
 
+const TrackingSession =
+  mongoose.models.TrackingSession ||
+  mongoose.model("TrackingSession", trackingSessionSchema);
+
+// Chat endpoint
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
 
@@ -39,4 +56,36 @@ app.post("/chat", async (req, res) => {
   } catch (err) {
     res.status(500).json({ reply: "Error: " + err.message });
   }
+});
+
+// Save a tracking session
+app.post("/tracking-session", async (req, res) => {
+  try {
+    const { sessionStart, sessionEnd, timeline } = req.body;
+
+    if (!sessionStart || !sessionEnd) {
+      return res.status(400).json({ error: "Missing sessionStart or sessionEnd" });
+    }
+
+    const created = await TrackingSession.create({
+      sessionStart: new Date(sessionStart),
+      sessionEnd: new Date(sessionEnd),
+      timeline: (timeline || []).map((row) => ({
+        app: row.app,
+        start: new Date(row.start),
+        end: new Date(row.end),
+        durationSec: row.durationSec,
+      })),
+    });
+
+    res.json({ ok: true, id: created._id });
+  } catch (err) {
+    console.error("Error saving tracking session:", err);
+    res.status(500).json({ error: "Failed to save tracking session" });
+  }
+});
+
+// Start server
+app.listen(5000, () => {
+  console.log("Server running on port 5000");
 });
