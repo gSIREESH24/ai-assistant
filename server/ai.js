@@ -1,79 +1,57 @@
 // server/ai.js
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const Groq = require("groq-sdk");
 const dotenv = require("dotenv");
 const path = require("path");
 
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 // -----------------------------------------
-// 1. LOAD GEMINI API
+// 1. LOAD GROQ API
 // -----------------------------------------
-let model;
+let groq;
+let modelName;
 
 try {
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-  // Use 2.0 Flash if available, otherwise fallback
-  const modelName =
-    process.env.GEMINI_MODEL ||
-    "gemini-2.0-flash"; // fallback safe default
+  // Default Groq model
+  modelName =
+    process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 
-  model = genAI.getGenerativeModel({ model: modelName });
-
-  console.log("✓ Gemini Model Loaded:", modelName);
+  console.log("✓ Groq Model Loaded:", modelName);
 } catch (err) {
-  console.error("✗ Failed to initialize Gemini:", err.message);
+  console.error("✗ Failed to initialize Groq:", err.message);
 }
 
 // -----------------------------------------
-// 2. CLEAN & SANITIZE INPUT
+// 2. SANITIZE INPUT
 // -----------------------------------------
 function sanitizeText(text) {
   if (!text) return "";
-  return text.replace(/\s+/g, " ").trim().slice(0, 50000); // 50k chars safe
+  return text.replace(/\s+/g, " ").trim().slice(0, 50000);
 }
 
 // -----------------------------------------
 // 3. UNIVERSAL AI REQUEST HANDLER
 // -----------------------------------------
 async function generateAIResponse(prompt) {
-  if (!model || !model.generateContent) {
-    return "AI model not initialized. Check API key.";
-  }
+  if (!groq) return "AI model not initialized. Check API key.";
 
   prompt = sanitizeText(prompt);
 
   try {
-    const result = await model.generateContent(prompt);
+    const response = await groq.chat.completions.create({
+      model: modelName,
+      messages: [
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.7,
+    });
 
-    // Gemini sometimes returns nested text
-    if (
-      result &&
-      result.response &&
-      typeof result.response.text === "function"
-    ) {
-      return result.response.text();
-    }
-
-    // If result.text exists
-    if (typeof result.text === "function") return result.text();
-
-    // If raw content block exists
-    if (result?.candidates?.[0]?.content?.parts?.[0]?.text) {
-      return result.candidates[0].content.parts[0].text;
-    }
-
-    return String(result);
+    const message = response.choices?.[0]?.message?.content;
+    return message || "No response from AI.";
   } catch (err) {
-    console.error("✗ Gemini API Error:", err.message);
-
-    // Handle rate-limits gracefully
-    if (err.message.includes("429")) {
-      return JSON.stringify({
-        ai_error: true,
-        message: "Rate limit — try again in a moment.",
-      });
-    }
+    console.error("✗ Groq API Error:", err.message);
 
     return JSON.stringify({
       ai_error: true,

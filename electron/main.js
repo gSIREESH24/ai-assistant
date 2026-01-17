@@ -10,7 +10,7 @@ const fetch = (...args) =>
 
 // Tracking utilities
 const { getActiveChromeURL } = require("./utils/chromeDebug");
-const { scanWebsite } = require("./utils/scraper");
+const { scrapeWebsite: scanWebsite } = require("./utils/scraper");
 
 let win;
 
@@ -27,6 +27,7 @@ let sessionEnd = null;
 let timeline = [];
 let segmentApp = null;
 let segmentStart = null;
+let lastScannedUrl = null;
 
 const USAGE_FILE = path.join(app.getPath("userData"), "usage.json");
 
@@ -118,7 +119,8 @@ async function trackActiveWindow() {
       const url = await getActiveChromeURL();
       console.log("🌐 Chrome URL:", url);
 
-      if (url) {
+      if (url && url !== lastScannedUrl) {
+        lastScannedUrl = url;
         win.webContents.send("active-url", { url });
 
         console.log("🟧 Scraping:", url);

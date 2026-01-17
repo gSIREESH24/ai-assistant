@@ -68,6 +68,7 @@ export default function Assistant() {
       // AUTO-SAVE SESSION
       if (data?.sessionEnd && data?.sessionStart) {
         const last = lastSavedSessionStartRef.current;
+
         if (!last || last !== data.sessionStart) {
           lastSavedSessionStartRef.current = data.sessionStart;
 
@@ -90,25 +91,28 @@ export default function Assistant() {
     window.electronAPI?.onURLUpdate?.(({ url }) => {
       setCurrentURL(url);
 
-      // AUTO-SCAN
       if (url.startsWith("http")) triggerScan(url);
     });
 
     // ==== SCAN RESULT FROM BACKEND ====
     window.electronAPI?.onScanResult?.((result) => {
+      console.log("🔥 Frontend received scan result:", result);
+
       setIsScanning(false);
-      setScanResult(result);
+      setScanResult(result || {});
 
       if (!result || result.error) {
         setRiskLevel("safe");
         return;
       }
 
-      // result.verdict = "DANGEROUS" or "SAFE"
-      if (result.verdict === "DANGEROUS") {
+      const verdict = result.verdict || "SAFE";
+      const score = Number(result.riskScore || 0);
+
+      if (verdict === "DANGEROUS") {
         setRiskLevel("high");
         speak("Warning. This website may be dangerous.");
-      } else if (result.riskScore >= 40) {
+      } else if (score >= 40) {
         setRiskLevel("medium");
       } else {
         setRiskLevel("safe");
@@ -222,6 +226,12 @@ export default function Assistant() {
       ? "0 0 22px orange"
       : "0 0 18px #4CAF50";
 
+  const riskLevelColor = (level) => {
+    if (level === "high") return "red";
+    if (level === "medium") return "orange";
+    return "green";
+  };
+
   // =====================================================
   // UI RENDER
   // =====================================================
@@ -264,22 +274,19 @@ export default function Assistant() {
             {/* RISK DETAILS */}
             {scanResult && !scanResult.error && (
               <div style={styles.riskBox}>
-                <div>
-                  <b>Score:</b> {scanResult.riskScore}
-                </div>
+                <div><b>Score:</b> {scanResult.riskScore ?? "N/A"}</div>
 
-                <div style={{ marginTop: 6 }}>
-                  <b>Issues:</b>
-                </div>
+                <div style={{ marginTop: 6 }}><b>Issues:</b></div>
 
                 <ul>
-                  {scanResult.issues?.map((i, idx) => (
+                  {(scanResult.issues || ["No issues detected"]).map((i, idx) => (
                     <li key={idx}>{i}</li>
                   ))}
                 </ul>
 
-                <div>
-                  <b>Recommendation:</b> {scanResult.recommendation}
+                <div style={{ marginTop: 6 }}>
+                  <b>Recommendation:</b><br />
+                  {scanResult.recommendation || "No recommendation available."}
                 </div>
               </div>
             )}
@@ -322,15 +329,6 @@ export default function Assistant() {
     </div>
   );
 }
-
-// =====================================================
-// COLOR MAP
-// =====================================================
-const riskLevelColor = (level) => {
-  if (level === "high") return "red";
-  if (level === "medium") return "orange";
-  return "green";
-};
 
 // =====================================================
 // STYLES
