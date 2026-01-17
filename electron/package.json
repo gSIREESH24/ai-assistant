@@ -12,8 +12,16 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "active-win": "^8.2.1",
+    "axios": "^1.13.2",
+    "cheerio": "^1.1.2",
+    "chrome-remote-interface": "^0.33.3",
+    "dotenv": "^17.2.3",
     "electron": "^39.2.4",
-    "openai": "^6.9.1"
+    "openai": "^6.9.1",
+    "path": "^0.12.7",
+    "whois-json": "^2.0.4"
+  },
+  "devDependencies": {
+    "electron-rebuild": "^3.2.9"
   }
 }

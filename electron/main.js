@@ -4,28 +4,32 @@ const path = require("path");
 const activeWin = require("active-win");
 const fs = require("fs");
 
+// node-fetch for backend communication
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
+
+// Tracking utilities
+const { getActiveChromeURL } = require("./utils/chromeDebug");
+const { scanWebsite } = require("./utils/scraper");
+
 let win;
 
-// ----------- USAGE TRACKING DATA (AGGREGATED) ----------------
-// Example: { "Chrome": 125, "Code": 522 } – total seconds per app
+// ===========================
+//      USAGE TRACKING
+// ===========================
 let usage = {};
 let lastApp = null;
 let lastTimestamp = Date.now();
 
-// ----------- SESSION / TIMELINE TRACKING (DETAILED) ----------
-// A single "session" is controlled from the renderer by a button.
-// We keep every interval: which app, when it started & ended, and duration.
 let trackingActive = false;
 let sessionStart = null;
 let sessionEnd = null;
-let timeline = []; // { app, start, end, durationSec }
+let timeline = [];
 let segmentApp = null;
 let segmentStart = null;
 
-// Save file location for aggregated usage
 const USAGE_FILE = path.join(app.getPath("userData"), "usage.json");
 
-// Load saved usage data
 function loadUsageData() {
   try {
     if (fs.existsSync(USAGE_FILE)) {
@@ -36,7 +40,6 @@ function loadUsageData() {
   }
 }
 
-// Save usage every minute + on exit
 function saveUsageData() {
   try {
     fs.writeFileSync(USAGE_FILE, JSON.stringify(usage, null, 2));
@@ -45,7 +48,6 @@ function saveUsageData() {
   }
 }
 
-// Helper to close current segment (for session timeline)
 function closeCurrentSegment(endTime) {
   if (!trackingActive || !segmentApp || !segmentStart) return;
 
@@ -67,16 +69,18 @@ function closeCurrentSegment(endTime) {
   segmentStart = null;
 }
 
-// Poll active window every second
+// ===========================
+//   ACTIVE WINDOW + URL TRACKER
+// ===========================
 async function trackActiveWindow() {
   try {
     const info = await activeWin();
     const now = Date.now();
 
-    // Identify app
     const appName = info?.owner?.name || info?.title || "Unknown App";
+    console.log("🟦 Active window:", appName);
 
-    // ---- Aggregated usage (always-on) ----
+    // Increment usage time
     if (lastApp) {
       const diff = Math.floor((now - lastTimestamp) / 1000);
       if (diff > 0) {
@@ -87,35 +91,68 @@ async function trackActiveWindow() {
     lastApp = appName;
     lastTimestamp = now;
 
-    // ---- Detailed session tracking (controlled by button) ----
+    // Session tracking
     if (trackingActive) {
-      // If this is the first segment of the session
       if (!segmentApp) {
         segmentApp = appName;
         segmentStart = now;
       } else if (segmentApp !== appName) {
-        // App changed: close previous segment and start new one
         closeCurrentSegment(now);
         segmentApp = appName;
         segmentStart = now;
       }
     }
 
-    // Send live update to renderer
-    if (win && win.webContents) {
-      win.webContents.send("usage-update", {
-        current: appName,
-        usage,
-      });
+    // Send usage updates
+    win?.webContents?.send("usage-update", {
+      current: appName,
+      usage,
+    });
+
+    // ===========================
+    //  CHROME URL + AUTOSCAN
+    // ===========================
+    if (appName.toLowerCase().includes("chrome")) {
+      console.log("🟨 Chrome active, fetching URL...");
+
+      const url = await getActiveChromeURL();
+      console.log("🌐 Chrome URL:", url);
+
+      if (url) {
+        win.webContents.send("active-url", { url });
+
+        console.log("🟧 Scraping:", url);
+        const scraped = await scanWebsite(url);
+
+        console.log("🟥 Scraped text length:", (scraped?.combinedText || "").length);
+
+        // Send scraped data to backend
+        console.log("🟪 Sending text to backend…");
+
+        const aiResponse = await fetch("http://localhost:5000/api/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url,
+            tAndCText: scraped.text, // FIXED
+            cookies: scraped.cookies || []
+          }),
+        }).then(r => r.json());
+
+        console.log("🟩 Backend Risk Result:", aiResponse);
+
+        // Send to frontend
+        win.webContents.send("scan-result", aiResponse);
+      }
     }
   } catch (err) {
-    console.error("Error tracking window:", err);
+    console.error("🚨 Error tracking window:", err);
   }
 }
 
-// -----------------------------------------------------
-//                      CREATE WINDOW
-// -----------------------------------------------------
+// ===========================
+//      CREATE WINDOW
+// ===========================
 function createWindow() {
   win = new BrowserWindow({
     width: 420,
@@ -127,7 +164,7 @@ function createWindow() {
     alwaysOnTop: true,
     resizable: false,
     hasShadow: false,
-    focusable: false, // floating window unfocusable by default
+    focusable: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -142,28 +179,24 @@ function createWindow() {
     win.show();
   });
 
-  // ---------------- WINDOW CLICK-THROUGH CONTROL ----------------
-
+  // Click-through control
   ipcMain.on("enable-clicks", () => {
-    if (!win) return;
-    win.setIgnoreMouseEvents(false); // allow clicking
+    win.setIgnoreMouseEvents(false);
     win.setFocusable(true);
   });
 
   ipcMain.on("disable-clicks", () => {
-    if (!win) return;
-    win.setIgnoreMouseEvents(true, { forward: true }); // window becomes click-through
+    win.setIgnoreMouseEvents(true, { forward: true });
     win.setFocusable(false);
   });
 
-  // ---------------- DRAG FLOATING WINDOW ----------------
+  // Dragging window
   ipcMain.on("move-window-by", (_evt, { dx, dy }) => {
-    if (!win) return;
     const [x, y] = win.getPosition();
     win.setPosition(x + dx, y + dy);
   });
 
-  // ---------------- REQUEST CURRENT USAGE SNAPSHOT ----------------
+  // Usage snapshot
   ipcMain.on("request-usage-snapshot", (event) => {
     event.sender.send("usage-snapshot", {
       current: lastApp,
@@ -171,7 +204,7 @@ function createWindow() {
     });
   });
 
-  // ---------------- SESSION TRACKING CONTROL ----------------
+  // Session start/stop
   ipcMain.on("start-tracking-session", () => {
     trackingActive = true;
     sessionStart = Date.now();
@@ -186,19 +219,15 @@ function createWindow() {
 
     const now = Date.now();
     trackingActive = false;
-    // Close any open segment and mark session end
     closeCurrentSegment(now);
     sessionEnd = now;
 
-    // Send final data back to renderer that requested the stop
-    if (event && event.sender) {
-      event.sender.send("tracking-data", {
-        trackingActive,
-        sessionStart,
-        sessionEnd,
-        timeline,
-      });
-    }
+    event.sender.send("tracking-data", {
+      trackingActive,
+      sessionStart,
+      sessionEnd,
+      timeline,
+    });
   });
 
   ipcMain.on("request-tracking-data", (event) => {
@@ -209,17 +238,40 @@ function createWindow() {
       timeline,
     });
   });
+
+  // ===========================
+  // Manual Scan
+  // ===========================
+  ipcMain.on("scan-url", async (_event, { url }) => {
+    try {
+      const scraped = await scanWebsite(url);
+
+      const aiResponse = await fetch("http://localhost:5000/api/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          tAndCText: scraped.text,
+          cookies: scraped.cookies || []
+        }),
+      }).then(r => r.json());
+
+      win.webContents.send("scan-result", aiResponse);
+    } catch (e) {
+      win.webContents.send("scan-result", { error: true, message: e.message });
+    }
+  });
 }
 
-// -----------------------------------------------------
-//                 APP LIFECYCLE
-// -----------------------------------------------------
+// ===========================
+//     APP LIFECYCLE
+// ===========================
 app.whenReady().then(() => {
-  loadUsageData();               // Load usage on startup
-  createWindow();                // Launch floating cat
+  loadUsageData();
+  createWindow();
 
-  setInterval(trackActiveWindow, 1000);  // Track app every second
-  setInterval(saveUsageData, 60000);     // Save every minute
+  setInterval(trackActiveWindow, 1000);
+  setInterval(saveUsageData, 60000);
 
-  app.on("before-quit", saveUsageData);  // Save on exit
+  app.on("before-quit", saveUsageData);
 });
