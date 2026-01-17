@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from "react";
 import Lottie from "lottie-react";
 import catAnimation from "../public/cat.json";
 
+import ReactMarkdown from "react-markdown";
+
 // 🔊 Voice alert
 const speak = (text) => {
   try {
@@ -14,15 +16,31 @@ const speak = (text) => {
   }
 };
 
+// ... (existing helper functions)
+
+const MarkdownComponents = {
+  h1: (props) => <h1 style={{ fontSize: "15px", fontWeight: "700", color: "#007AFF", margin: "8px 0 4px" }} {...props} />,
+  h2: (props) => <h2 style={{ fontSize: "14px", fontWeight: "700", color: "#007AFF", margin: "8px 0 4px" }} {...props} />,
+  p: (props) => <p style={{ margin: "0 0 8px 0", fontSize: "13.5px", lineHeight: "1.5" }} {...props} />,
+  ul: (props) => <ul style={{ margin: "4px 0 8px", paddingLeft: "18px" }} {...props} />,
+  ol: (props) => <ol style={{ margin: "4px 0 8px", paddingLeft: "18px" }} {...props} />,
+  li: (props) => <li style={{ marginBottom: "4px" }} {...props} />,
+  strong: (props) => <strong style={{ fontWeight: "600", color: "#333" }} {...props} />,
+};
+
+// ... inside Assistant function ...
+
+
 export default function Assistant() {
   // PANEL + MODES
-  const [mode, setMode] = useState("none");
+  const [mode, setMode] = useState("chat"); // Default to chat mode
   const [showPanel, setShowPanel] = useState(false);
 
   // CHAT
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState([
+    { role: "assistant", text: "Hello! I'm here to help." }
+  ]);
   const [input, setInput] = useState("");
-  const [displayedText, setDisplayedText] = useState("");
   const [isThinking, setIsThinking] = useState(false);
 
   // PRODUCTIVITY + SESSION TRACKING
@@ -43,6 +61,7 @@ export default function Assistant() {
   const mouseDownPos = useRef({ x: 0, y: 0 });
 
   const lastSavedSessionStartRef = useRef(null);
+  const chatEndRef = useRef(null);
 
   // =====================================================
   //      ELECTRON EVENT LISTENERS
@@ -80,7 +99,7 @@ export default function Assistant() {
               sessionEnd: data.sessionEnd,
               timeline: data.timeline || [],
             }),
-          }).catch(() => {});
+          }).catch(() => { });
         }
       }
     });
@@ -90,14 +109,11 @@ export default function Assistant() {
     // ==== ACTIVE WEBSITE URL ====
     window.electronAPI?.onURLUpdate?.(({ url }) => {
       setCurrentURL(url);
-
       if (url.startsWith("http")) triggerScan(url);
     });
 
     // ==== SCAN RESULT FROM BACKEND ====
     window.electronAPI?.onScanResult?.((result) => {
-      console.log("🔥 Frontend received scan result:", result);
-
       setIsScanning(false);
       setScanResult(result || {});
 
@@ -109,9 +125,23 @@ export default function Assistant() {
       const verdict = result.verdict || "SAFE";
       const score = Number(result.riskScore || 0);
 
+      // 1. Inject summary into chat
+      setMessages(prev => {
+        // Avoid duplicate messages if scanning same site multiple times
+        const lastMsg = prev[prev.length - 1];
+        const newMsg = `I've analyzed this site.\nRisk Score: ${score}/100 (${verdict}).\n${result.issues?.length || 0} potential issues found.`;
+
+        if (lastMsg?.text !== newMsg) {
+          return [...prev, { role: "assistant", text: newMsg }];
+        }
+        return prev;
+      });
+
+      // 2. Handle Risk Levels
       if (verdict === "DANGEROUS") {
         setRiskLevel("high");
         speak("Warning. This website may be dangerous.");
+        setShowPanel(true);
       } else if (score >= 40) {
         setRiskLevel("medium");
       } else {
@@ -120,28 +150,12 @@ export default function Assistant() {
     });
   }, []);
 
-  // =====================================================
-  // SMOOTH CHAT TYPING
-  // =====================================================
+  // Scroll chat to bottom
   useEffect(() => {
-    if (!messages.length) {
-      setDisplayedText("");
-      return;
+    if (showPanel && mode === 'chat') {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-
-    const full = messages[0].text;
-    let i = 0;
-    setDisplayedText("");
-
-    const iv = setInterval(() => {
-      i += 2;
-      setDisplayedText(full.slice(0, i));
-
-      if (i >= full.length) clearInterval(iv);
-    }, 18);
-
-    return () => clearInterval(iv);
-  }, [messages]);
+  }, [messages, showPanel, mode]);
 
   // =====================================================
   // SEND CHAT MESSAGE
@@ -149,30 +163,43 @@ export default function Assistant() {
   const sendMessage = async () => {
     if (!input.trim() || isThinking) return;
 
+    const userMsg = input.trim();
+    setMessages(prev => [...prev, { role: "user", text: userMsg }]);
+    setInput("");
     setIsThinking(true);
 
-    const res = await fetch("http://localhost:5000/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: input }),
-    });
+    try {
+      const res = await fetch("http://localhost:5000/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: userMsg,
+          url: currentURL,
+          scanResult: scanResult // Pass full analysis
+        }),
+      });
 
-    const data = await res.json();
-    setMessages([{ role: "assistant", text: data.reply }]);
-    setInput("");
-    setIsThinking(false);
+      const data = await res.json();
+      setMessages(prev => [...prev, { role: "assistant", text: data.reply }]);
+    } catch (e) {
+      setMessages(prev => [...prev, { role: "assistant", text: "Sorry, I couldn't reach the server." }]);
+    } finally {
+      setIsThinking(false);
+    }
   };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') sendMessage();
+  }
 
   // =====================================================
   // WEBSITE SCAN TRIGGER
   // =====================================================
   const triggerScan = (url) => {
     if (!url) return;
-
     setIsScanning(true);
     setScanResult(null);
     setRiskLevel("safe");
-
     window.electronAPI?.scanURL?.(url);
   };
 
@@ -192,16 +219,19 @@ export default function Assistant() {
     const dx = e.screenX - mouseDownPos.current.x;
     const dy = e.screenY - mouseDownPos.current.y;
 
-    if (dx * dx + dy * dy < 25) setShowPanel((v) => !v);
+    // Increased threshold to 25px movement to be considered a drag
+    if ((dx * dx + dy * dy) < 100) {
+      setShowPanel((v) => !v);
+    }
   };
 
   const handleMouseMove = (e) => {
     if (!dragging.current) return;
 
-    window.electronAPI?.moveWindowBy?.(
-      e.screenX - lastPos.current.x,
-      e.screenY - lastPos.current.y
-    );
+    const dx = e.screenX - lastPos.current.x;
+    const dy = e.screenY - lastPos.current.y;
+
+    window.electronAPI?.moveWindowBy?.(dx, dy);
 
     lastPos.current = { x: e.screenX, y: e.screenY };
   };
@@ -217,20 +247,24 @@ export default function Assistant() {
   }, []);
 
   // =====================================================
-  // RISK COLOR GLOW
+  // RISK STYLING
   // =====================================================
-  const glowColor =
-    riskLevel === "high"
-      ? "0 0 22px red"
-      : riskLevel === "medium"
-      ? "0 0 22px orange"
-      : "0 0 18px #4CAF50";
-
-  const riskLevelColor = (level) => {
-    if (level === "high") return "red";
-    if (level === "medium") return "orange";
-    return "green";
+  const getGlowColor = () => {
+    if (riskLevel === "high") return "rgba(255, 59, 48, 0.6)";
+    if (riskLevel === "medium") return "rgba(255, 149, 0, 0.6)";
+    return "rgba(52, 199, 89, 0.4)";
   };
+
+  const getStatusColor = () => {
+    if (riskLevel === "high") return "#FF3B30"; // Red
+    if (riskLevel === "medium") return "#FF9500"; // Orange
+    return "#34C759"; // Green
+  };
+
+  const getStatusText = () => {
+    if (isScanning) return "Scanning...";
+    return riskLevel.toUpperCase();
+  }
 
   // =====================================================
   // UI RENDER
@@ -239,7 +273,10 @@ export default function Assistant() {
     <div style={styles.wrapper}>
       {/* 🐱 Floating Cat */}
       <div
-        style={{ ...styles.cat, filter: `drop-shadow(${glowColor})` }}
+        style={{
+          ...styles.cat,
+          filter: `drop-shadow(0 0 30px ${getGlowColor()})`
+        }}
         onMouseDown={handleMouseDown}
         onMouseEnter={() => window.electronAPI?.enableClicks()}
         onMouseLeave={() => window.electronAPI?.disableClicks()}
@@ -251,79 +288,118 @@ export default function Assistant() {
       {showPanel && (
         <div
           style={styles.panel}
+          className="glass-panel"
           onMouseEnter={() => window.electronAPI?.enableClicks()}
           onMouseLeave={() => window.electronAPI?.disableClicks()}
         >
-          {/* WEBSITE RISK MONITOR */}
-          <div style={styles.section}>
-            <div style={styles.title}>Website Risk Monitor</div>
-
-            <div style={styles.label}>URL: {currentURL || "None"}</div>
-
-            <div style={styles.label}>
-              Risk:{" "}
-              <span style={{ fontWeight: "bold", color: riskLevelColor(riskLevel) }}>
-                {riskLevel.toUpperCase()}
-              </span>
+          {/* Header */}
+          <div style={styles.header}>
+            <div style={styles.headerTitle}>FutureSafe AI</div>
+            <div style={styles.riskBadge}>
+              <div style={{ ...styles.statusDot, background: getStatusColor() }} />
+              {getStatusText()}
             </div>
+          </div>
 
-            <button style={styles.scanBtn} onClick={() => triggerScan(currentURL)}>
-              {isScanning ? "Scanning..." : "Scan Again"}
-            </button>
-
-            {/* RISK DETAILS */}
-            {scanResult && !scanResult.error && (
-              <div style={styles.riskBox}>
-                <div><b>Score:</b> {scanResult.riskScore ?? "N/A"}</div>
-
-                <div style={{ marginTop: 6 }}><b>Issues:</b></div>
-
-                <ul>
-                  {(scanResult.issues || ["No issues detected"]).map((i, idx) => (
-                    <li key={idx}>{i}</li>
+          {/* Content Area */}
+          <div style={styles.content}>
+            {mode === "chat" ? (
+              <div style={styles.chatContainer}>
+                <div style={styles.chatList}>
+                  {messages.map((m, i) => (
+                    <div key={i} style={{
+                      ...styles.messageBubble,
+                      alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+                      background: m.role === 'user' ? '#007AFF' : '#F2F2F7',
+                      color: m.role === 'user' ? '#FFF' : '#1C1C1E',
+                    }}>
+                      {m.role === 'assistant' ? (
+                        <ReactMarkdown components={MarkdownComponents}>
+                          {m.text}
+                        </ReactMarkdown>
+                      ) : (
+                        <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
+                      )}
+                    </div>
                   ))}
-                </ul>
+                  {isThinking && (
+                    <div style={{ ...styles.messageBubble, background: '#F2F2F7', color: '#666' }}>
+                      ...
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+                <div style={styles.inputArea}>
+                  <input
+                    style={styles.input}
+                    placeholder="Ask about this site..."
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                  />
+                  <button style={styles.sendBtn} onClick={sendMessage}>→</button>
+                </div>
+              </div>
+            ) : (
+              <div style={styles.trackingContainer}>
+                <div style={styles.sectionTitle}>Current Session</div>
 
-                <div style={{ marginTop: 6 }}>
-                  <b>Recommendation:</b><br />
-                  {scanResult.recommendation || "No recommendation available."}
+                {/* URL Info */}
+                <div style={styles.infoCard}>
+                  <div style={styles.label}>Website</div>
+                  <div style={styles.value}>{currentURL ? new URL(currentURL).hostname : "No active site"}</div>
+                </div>
+
+                {/* Risk Report */}
+                {scanResult && !scanResult.error && (
+                  <div style={styles.riskCard}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={styles.label}>Risk Score</span>
+                      <span style={{ fontWeight: 'bold', color: getStatusColor() }}>{scanResult.riskScore}/100</span>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      {scanResult.issues && scanResult.issues.length > 0 ? (
+                        <ul style={{ paddingLeft: 20, margin: '5px 0', fontSize: 12, color: '#444' }}>
+                          {scanResult.issues.map((issue, idx) => (
+                            <li key={idx}>{issue}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div style={{ fontSize: 12, color: '#666', fontStyle: 'italic' }}>No issues found.</div>
+                      )}
+                    </div>
+                    {scanResult.recommendation && (
+                      <div style={{ marginTop: 8, fontSize: 12, borderTop: '1px solid #eee', paddingTop: 6 }}>
+                        <strong>Advice: </strong>{scanResult.recommendation}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ ...styles.sectionTitle, marginTop: 15 }}>App Usage</div>
+                <div style={styles.infoCard}>
+                  <div style={styles.label}>Current App</div>
+                  <div style={styles.value}>{currentApp || "Unknown"}</div>
                 </div>
               </div>
             )}
           </div>
 
-          {/* CHAT MODE */}
-          <div style={styles.modeButtons}>
-            <button style={styles.modeBtn} onClick={() => setMode("chat")}>
+          {/* Tab Bar */}
+          <div style={styles.tabBar}>
+            <button
+              style={{ ...styles.tabBtn, opacity: mode === 'chat' ? 1 : 0.5 }}
+              onClick={() => setMode('chat')}
+            >
               Chat
             </button>
-            <button style={styles.modeBtn} onClick={() => setMode("tracking")}>
-              Tracking
+            <button
+              style={{ ...styles.tabBtn, opacity: mode === 'tracking' ? 1 : 0.5 }}
+              onClick={() => setMode('tracking')}
+            >
+              Risk & Info
             </button>
           </div>
-
-          {/* CHAT */}
-          {mode === "chat" && (
-            <>
-              <div style={styles.chatCard}>
-                {isThinking && <div>Thinking...</div>}
-
-                <div style={styles.chatDisplay}>{displayedText}</div>
-              </div>
-
-              <div style={styles.inputRow}>
-                <input
-                  style={styles.input}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="Ask something…"
-                />
-                <button style={styles.sendBtn} onClick={sendMessage}>
-                  Send
-                </button>
-              </div>
-            </>
-          )}
         </div>
       )}
     </div>
@@ -338,106 +414,214 @@ const styles = {
     position: "fixed",
     bottom: "20px",
     left: "20px",
-    pointerEvents: "none",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
     zIndex: 9999,
   },
 
   cat: {
-    width: "200px",
-    height: "200px",
-    cursor: "pointer",
+    width: "180px",
+    height: "180px",
+    cursor: "grab",
     pointerEvents: "auto",
-    transition: "0.3s",
+    transition: "transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)",
+    zIndex: 2,
   },
 
   panel: {
     pointerEvents: "auto",
     position: "absolute",
-    bottom: "210px",
-    left: "0px",
-    background: "rgba(255,255,255,0.9)",
-    backdropFilter: "blur(12px)",
-    padding: "16px",
-    borderRadius: "16px",
-    width: "380px",
-    boxShadow: "0 4px 18px rgba(0,0,0,0.25)",
-  },
-
-  section: { marginBottom: "12px" },
-
-  title: { fontWeight: 700, fontSize: 16, marginBottom: 8 },
-
-  label: { fontSize: 13, marginBottom: 4 },
-
-  scanBtn: {
-    padding: "6px 12px",
-    borderRadius: 8,
-    background: "#1976D2",
-    color: "white",
-    border: "none",
-    cursor: "pointer",
-    marginTop: 6,
-  },
-
-  riskBox: {
-    background: "white",
-    padding: 10,
-    marginTop: 10,
-    borderRadius: 8,
-    fontSize: 12,
-    boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
-  },
-
-  modeButtons: {
-    marginTop: 10,
+    bottom: "160px", // Just enough to overlap slightly or sit above
+    left: "10px",
+    width: "320px",
+    height: "450px",
+    background: "rgba(255, 255, 255, 0.85)",
+    backdropFilter: "blur(20px)",
+    WebkitBackdropFilter: "blur(20px)",
+    borderRadius: "24px",
+    boxShadow: "0 20px 40px rgba(0,0,0,0.2), 0 0 0 1px rgba(255,255,255,0.5) inset",
     display: "flex",
-    gap: 10,
+    flexDirection: "column",
+    overflow: "hidden",
+    animation: "popIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
+    zIndex: 1,
   },
 
-  modeBtn: {
+  header: {
+    padding: "16px 20px",
+    borderBottom: "1px solid rgba(0,0,0,0.05)",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    background: "rgba(255,255,255,0.5)",
+  },
+
+  headerTitle: {
+    fontWeight: 700,
+    fontSize: "16px",
+    color: "#1C1C1E",
+    letterSpacing: "-0.5px",
+  },
+
+  riskBadge: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    background: "rgba(255,255,255,0.8)",
+    padding: "4px 10px",
+    borderRadius: "20px",
+    fontSize: "11px",
+    fontWeight: 600,
+    boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+  },
+
+  statusDot: {
+    width: "8px",
+    height: "8px",
+    borderRadius: "50%",
+  },
+
+  content: {
     flex: 1,
-    padding: "8px",
-    borderRadius: 8,
-    background: "#673AB7",
-    color: "white",
-    cursor: "pointer",
-    border: "none",
+    overflowY: "auto",
+    padding: "0",
+    display: "flex",
+    flexDirection: "column",
   },
 
-  chatCard: {
-    background: "white",
-    borderRadius: 10,
-    padding: 10,
-    marginTop: 12,
-    height: "140px",
-    boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
+  chatContainer: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    height: "100%",
+  },
+
+  chatList: {
+    flex: 1,
+    padding: "16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
     overflowY: "auto",
   },
 
-  chatDisplay: {
-    whiteSpace: "pre-wrap",
-    fontSize: 13,
+  messageBubble: {
+    maxWidth: "85%",
+    padding: "10px 14px",
+    borderRadius: "18px",
+    fontSize: "14px",
+    lineHeight: "1.4",
+    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
   },
 
-  inputRow: {
+  inputArea: {
+    padding: "12px 16px",
+    background: "rgba(255,255,255,0.8)",
+    borderTop: "1px solid rgba(0,0,0,0.05)",
     display: "flex",
-    gap: 6,
-    marginTop: 10,
+    gap: "8px",
   },
 
   input: {
     flex: 1,
-    padding: "6px 10px",
-    borderRadius: 6,
-    border: "1px solid #ccc",
+    background: "rgba(0,0,0,0.05)",
+    border: "none",
+    borderRadius: "20px",
+    padding: "10px 16px",
+    fontSize: "14px",
+    outline: "none",
+    transition: "background 0.2s",
   },
 
   sendBtn: {
-    padding: "6px 12px",
-    borderRadius: 6,
-    border: "none",
-    background: "#4CAF50",
+    width: "36px",
+    height: "36px",
+    borderRadius: "50%",
+    background: "#007AFF",
     color: "white",
+    border: "none",
+    fontSize: "16px",
     cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "transform 0.1s",
+  },
+
+  trackingContainer: {
+    padding: "20px",
+  },
+
+  sectionTitle: {
+    fontSize: "12px",
+    fontWeight: 600,
+    textTransform: "uppercase",
+    color: "#8E8E93",
+    marginBottom: "10px",
+    letterSpacing: "0.5px",
+  },
+
+  infoCard: {
+    background: "white",
+    padding: "12px 16px",
+    borderRadius: "16px",
+    marginBottom: "12px",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+  },
+
+  riskCard: {
+    background: "#FFFBF0", // light yellow hint
+    padding: "14px 16px",
+    borderRadius: "16px",
+    marginBottom: "12px",
+    border: "1px solid rgba(255,149,0,0.2)",
+  },
+
+  label: {
+    fontSize: "12px",
+    color: "#8E8E93",
+    marginBottom: "4px",
+  },
+
+  value: {
+    fontSize: "15px",
+    fontWeight: 500,
+    color: "#1C1C1E",
+    wordBreak: "break-all",
+  },
+
+  tabBar: {
+    height: "50px",
+    display: "flex",
+    background: "rgba(249, 249, 249, 0.8)",
+    borderTop: "1px solid rgba(0,0,0,0.05)",
+    padding: "4px",
+    gap: "4px",
+  },
+
+  tabBtn: {
+    flex: 1,
+    background: "transparent",
+    border: "none",
+    borderRadius: "12px",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 600,
+    color: "#1C1C1E",
+    transition: "opacity 0.2s, background 0.2s",
   },
 };
+
+// Add keyframe style
+const styleSheet = document.createElement("style");
+styleSheet.innerText = `
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.glass-panel:hover {
+    box-shadow: 0 25px 50px rgba(0,0,0,0.25);
+}
+`;
+document.head.appendChild(styleSheet);

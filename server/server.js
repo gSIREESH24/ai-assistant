@@ -29,7 +29,7 @@ app.get("/", (req, res) => {
 
 app.post("/chat", async (req, res) => {
   try {
-    const { message, url, tAndCText } = req.body;
+    const { message, url, tAndCText, scanResult } = req.body;
 
     if (!message) {
       return res.status(400).json({ reply: "No message provided" });
@@ -37,7 +37,22 @@ app.post("/chat", async (req, res) => {
 
     let finalPrompt = message;
 
-    if (url) {
+    if (scanResult) {
+      finalPrompt = `
+WEBSITE SECURITY SCAN DATA:
+${JSON.stringify(scanResult, null, 2)}
+
+USER QUESTION:
+${message}
+
+Instructions:
+1. Answer based on the scan data.
+2. Use Markdown formatting.
+3. Use ## for clear, bold headings (e.g. ## Risk Analysis).
+4. Use bullet points (-) for listing issues or details.
+5. Keep sections short and easy to read.
+      `;
+    } else if (url) {
       const scanData = await analyzeRisk(url, tAndCText || "");
 
       finalPrompt = `
@@ -47,7 +62,11 @@ ${JSON.stringify(scanData, null, 2)}
 USER QUESTION:
 ${message}
 
-Answer based on the website scan above.
+Instructions:
+1. Answer based on the scan data.
+2. Use Markdown formatting.
+3. Use ## for headings.
+4. Keep it concise and use bullet points.
       `;
     }
 

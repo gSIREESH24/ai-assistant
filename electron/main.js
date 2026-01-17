@@ -157,8 +157,8 @@ async function trackActiveWindow() {
 // ===========================
 function createWindow() {
   win = new BrowserWindow({
-    width: 420,
-    height: 300,
+    width: 450,
+    height: 800,
     x: 50,
     y: 50,
     frame: false,
@@ -166,7 +166,7 @@ function createWindow() {
     alwaysOnTop: true,
     resizable: false,
     hasShadow: false,
-    focusable: false,
+    focusable: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -176,10 +176,11 @@ function createWindow() {
 
   win.loadURL("http://localhost:5173");
 
+  // win.setIgnoreMouseEvents(true, { forward: true });
   win.once("ready-to-show", () => {
-    win.setIgnoreMouseEvents(true, { forward: true });
     win.show();
   });
+
 
   // Click-through control
   ipcMain.on("enable-clicks", () => {
