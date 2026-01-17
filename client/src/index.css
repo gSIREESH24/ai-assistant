@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
   width: 100%;
@@ -10,19 +11,16 @@ html, body {
   overflow: hidden !important;
 }
 
-/* Allow the React root to show overflow so floating UI (assistant) isn't clipped */
 #root {
   width: 100%;
   height: 100%;
   overflow: visible !important;
 }
 
-/* Base box sizing */
 * {
   box-sizing: border-box;
 }
 
-/* Show thin, modern scrollbars where scrolling is allowed */
 * {
   scrollbar-width: thin;
 }
@@ -37,7 +35,6 @@ html, body {
   border-radius: 3px;
 }
 
-/* Make React background transparent */
 body {
   background-color: rgba(0, 0, 0, 0) !important;
 }

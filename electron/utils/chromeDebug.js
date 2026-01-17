@@ -1,13 +1,10 @@
-// electron/utils/chromeDebug.js
+
 const CDP = require("chrome-remote-interface");
 const axios = require("axios");
 
-// Chrome usually exposes debugging on one of these ports
 const CHROME_PORTS = [9222, 9223, 9224, 9229, 9230];
 
-// ----------------------------------------------------------
-// 1. FIND ACTIVE CHROME TARGET (tab with "page" type)
-// ----------------------------------------------------------
+
 async function findChromeTarget() {
   for (const port of CHROME_PORTS) {
     try {
@@ -16,7 +13,6 @@ async function findChromeTarget() {
 
       if (!Array.isArray(list)) continue;
 
-      // choose active visible page
       const target =
         list.find((t) => t.type === "page" && t.url && t.url !== "about:blank") ||
         null;
@@ -25,16 +21,12 @@ async function findChromeTarget() {
         return { port, target };
       }
     } catch (e) {
-      // port not open → skip
     }
   }
 
   return null;
 }
 
-// ----------------------------------------------------------
-// 2. GET ACTIVE CHROME TAB URL
-// ----------------------------------------------------------
 async function getActiveChromeURL() {
   try {
     const found = await findChromeTarget();
@@ -55,9 +47,6 @@ async function getActiveChromeURL() {
   }
 }
 
-// ----------------------------------------------------------
-// 3. GET COOKIES OF ACTIVE SITE
-// ----------------------------------------------------------
 async function getChromeCookies() {
   try {
     const found = await findChromeTarget();
@@ -80,7 +69,6 @@ async function getChromeCookies() {
   }
 }
 
-// ----------------------------------------------------------
 module.exports = {
   getActiveChromeURL,
   getChromeCookies,

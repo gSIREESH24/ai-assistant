@@ -1,20 +1,17 @@
-// server/ai.js
 const Groq = require("groq-sdk");
 const dotenv = require("dotenv");
 const path = require("path");
 
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
-// -----------------------------------------
-// 1. LOAD GROQ API
-// -----------------------------------------
+
 let groq;
 let modelName;
 
 try {
   groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-  // Default Groq model
+
   modelName =
     process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 
@@ -23,17 +20,13 @@ try {
   console.error("✗ Failed to initialize Groq:", err.message);
 }
 
-// -----------------------------------------
-// 2. SANITIZE INPUT
-// -----------------------------------------
+
 function sanitizeText(text) {
   if (!text) return "";
   return text.replace(/\s+/g, " ").trim().slice(0, 50000);
 }
 
-// -----------------------------------------
-// 3. UNIVERSAL AI REQUEST HANDLER
-// -----------------------------------------
+
 async function generateAIResponse(prompt) {
   if (!groq) return "AI model not initialized. Check API key.";
 
@@ -60,7 +53,5 @@ async function generateAIResponse(prompt) {
   }
 }
 
-// -----------------------------------------
-// 4. EXPORT
-// -----------------------------------------
+
 module.exports = generateAIResponse;

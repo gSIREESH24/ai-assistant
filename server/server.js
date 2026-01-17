@@ -9,7 +9,6 @@ require("dotenv").config({
 
 const generateAIResponse = require("./ai");
 const analyzeRisk = require("./riskEngine");
-const TrackingSession = require("./models/TrackingSession");
 
 const app = express();
 
@@ -92,30 +91,6 @@ app.post("/api/scan", async (req, res) => {
   }
 });
 
-// ------------------------------------------------------
-// 3. Save Tracking Session
-// ------------------------------------------------------
-app.post("/tracking-session", async (req, res) => {
-  try {
-    const { sessionStart, sessionEnd, timeline } = req.body;
-
-    if (!sessionStart || !sessionEnd) {
-      return res.status(400).json({ error: "Missing session timestamps" });
-    }
-
-    const created = await TrackingSession.create({
-      sessionStart: new Date(sessionStart),
-      sessionEnd: new Date(sessionEnd),
-      timeline,
-    });
-
-    res.json({ ok: true, id: created._id });
-
-  } catch (err) {
-    console.error("SESSION SAVE ERROR:", err);
-    res.status(500).json({ error: "Failed to save session" });
-  }
-});
 
 app.listen(5000, () => {
   console.log("✓ Backend running on http://localhost:5000");
