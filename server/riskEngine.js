@@ -87,84 +87,114 @@ function heuristicComplianceScan(text, url) {
   let scoreImpact = 0;
 
 
-  const isIndianContext = url.endsWith(".in") || textLower.includes("rupee") || textLower.includes("india");
+  const isIndianContext = url.endsWith(".in") || textLower.includes("rupee") || textLower.includes("india") || textLower.includes("delhi") || textLower.includes("mumbai") || textLower.includes("bangalore");
+  const hasPrivacy = textLower.includes("privacy policy") || textLower.includes("privacy notice");
+  const hasTerms = textLower.includes("terms of use") || textLower.includes("terms of service") || textLower.includes("terms & conditions");
+  const hasContact = textLower.includes("contact us") || textLower.includes("support") || textLower.includes("about us") || textLower.includes("help");
+
+  if (!hasPrivacy) {
+    violations.push({
+      act: "Global Data Protection Principles",
+      reason: "Missing 'Privacy Policy'. This is a critical transparency failure for any legitimate site.",
+      severity: "High"
+    });
+    scoreImpact += 20;
+  }
+
+  if (!hasTerms) {
+    violations.push({
+      act: "Consumer Transparency",
+      reason: "Missing 'Terms of Service/Use'. Users cannot know their rights.",
+      severity: "Medium"
+    });
+    scoreImpact += 10;
+  }
+
+  if (!hasContact) {
+    violations.push({
+      act: "Trust & Credibility",
+      reason: "No obvious 'Contact' or 'Support' section found.",
+      severity: "Low"
+    });
+    scoreImpact += 10;
+  }
 
   if (isIndianContext) {
 
-    const hasGrievance = textLower.includes("grievance") || textLower.includes("nodal officer");
+    const hasGrievance = textLower.includes("grievance") || textLower.includes("nodal officer") || textLower.includes("compliance officer");
     if (!hasGrievance) {
       violations.push({
-        act: "IT Rules, 2021 & E-Commerce Rules",
-        reason: "Mandatory 'Grievance Officer' details are missing from the page.",
+        act: "IT Rules, 2021 (India)",
+        reason: "Mandatory 'Grievance Officer' details are missing.",
         severity: "High"
       });
       scoreImpact += 25;
     }
 
 
-    const hasAddress = textLower.includes("registered address") || textLower.includes("corporate office");
-    if (!hasAddress) {
+    const hasAddress = textLower.includes("registered address") || textLower.includes("corporate office") || textLower.includes("building") || textLower.includes("floor");
+    if (!hasAddress && !hasContact) {
       violations.push({
         act: "Consumer Protection Rules, 2020",
-        reason: "Physical contact address must be clearly displayed.",
+        reason: "No physical contact address or clear contact mechanism found.",
         severity: "Medium"
       });
-      scoreImpact += 15;
+      scoreImpact += 20;
     }
-  }
-
-
-  if (!textLower.includes("privacy policy")) {
-    violations.push({
-      act: "DPDP Act, 2023 / IT Act, 2000",
-      reason: "No 'Privacy Policy' link or section found.",
-      severity: "High"
-    });
-    scoreImpact += 20;
   }
 
   return { violations, scoreImpact };
 }
 
 
-async function analyzeLegalComplianceAI(text) {
+async function analyzeLegalComplianceAI(text, url = "") {
   if (!text || text.trim().length === 0) {
-    return { score: 0, violations: [], summary: "Insufficient content for legal audit." };
+    return { score: 10, violations: [], summary: "Insufficient content to fully verify, but no obvious threats found." };
   }
 
   const cleanText = text.slice(0, 15000);
 
   const prompt = `
-You are a Senior Legal Compliance Auditor for Digital Governance.
-Your task: Audit this specific website text for violations of Indian and EU Digital Laws.
+You are a Senior Cyber-Security and Legal Compliance Auditor.
+Your goal is to accurately assess the RISK LEVEL of a website based on its content.
 
-STRICT LAWS TO ENFORCE:
-1. **IT Rules, 2021 (India)**: Requires 'Grievance Officer' details, 'Physical Contact Address'.
-2. **DPDP Act, 2023 (India)**: Requires 'Consent Manager', 'Purpose Limitation', 'Right to Withdraw Consent'.
-3. **E-Commerce Rules, 2020 (India)**: Requires 'Country of Origin', 'Return Policy', 'Seller Details'.
-4. **GDPR (EU)**: Requires 'Cookie Consent', 'Data Controller Info'.
-5. **Dark Patterns**: Check for 'False Urgency' (e.g. "Only 2 left!"), 'Forced Action', 'Subscription Traps'.
+CONTEXT:
+URL: "${url}" (Infer jurisdiction from TLD if possible, e.g., .in = India, .eu = Europe)
 
-INPUT TEXT:
+EVALUATION CRITERIA:
+1. **Universal Trust Indicators**:
+   - Presence of "Privacy Policy", "Terms of Service", and "Contact Us" (Physical address/Email).
+   - Professional language vs. Poor grammar/typos.
+2. **Key Legal Compliance** (Strictly enforce based on inferred region):
+   - **India**: IT Rules 2021 (Grievance Officer), DPDP Act (Consent Managers), E-Commerce Rules (Country of Origin).
+   - **EU/US**: GDPR/CCPA (Cookie Consent, Data Rights).
+3. **Dark Patterns & Risk Flags**:
+   - False Urgency ("Only 2 minutes left!"), Forced Action, Hidden Costs.
+   - High-yield financial promises (Scam indicators).
+
+INPUT TEXT FROM WEBSITE:
 "${cleanText}"
+
+TASK:
+Return a JSON object analyzing the risk.
+Risk Score Scale:
+0-20: Safe (Legitimate business/site)
+21-49: Moderate (Missing some non-critical disclosures)
+50-79: Risky (Major compliance failures, suspicious elements)
+80-100: Dangerous (Scam, Phishing, Illegal)
 
 OUTPUT FORMAT (JSON ONLY):
 {
-  "riskScore": number (0-100),
-  "summary": "Professional legal summary of the site's compliance status.",
+  "riskScore": number,
+  "summary": "Brief, professional assessment of safety and compliance.",
   "violations": [
     {
-      "act": "Exact Act/Rule Name",
-      "reason": "Specific observed failure (e.g. 'Site uses false urgency countdown timer' or 'No Grievance Officer listed').",
+      "act": "Act Name or Standard (e.g., 'Global Trust Standards' or 'IT Rules 2021')",
+      "reason": "Specific observed failure.",
       "severity": "High" | "Medium" | "Low"
     }
   ]
 }
-
-CRITICAL INSTRUCTIONS:
-- Be strict. If a "Grievance Officer" is missing for an Indian site, that is a HIGH violation.
-- If "Dark Patterns" (like fake urgency) are found, flag them under "Consumer Protection Act".
-- Return ONLY valid JSON.
   `;
 
   try {
@@ -202,7 +232,12 @@ function calculateFinalVerdict({
 
 
   const allViolations = [...heuristicResult.violations, ...aiResult.violations];
+
+
+  score = (aiResult.score * 0.6) + (heuristicResult.scoreImpact * 0.4);
+
   score = Math.max(score, heuristicResult.scoreImpact);
+  if (aiResult.score > 80) score = Math.max(score, aiResult.score);
 
 
   if (phishingFlag) {
@@ -253,7 +288,7 @@ async function analyzeWebsiteRisk(url, tAndCText = "") {
     const [phishingFlag, domainAge, aiResult] = await Promise.all([
       checkPhishing(url),
       checkDomainAge(url),
-      analyzeLegalComplianceAI(tAndCText)
+      analyzeLegalComplianceAI(tAndCText, url)
     ]);
 
     const httpFlag = !url.startsWith("https://");
