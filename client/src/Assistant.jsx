@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import Lottie from "lottie-react";
 import catAnimation from "../public/cat.json";
 import ReactMarkdown from "react-markdown";
+import Dashboard from "./Dashboard";
 
 
 const speak = (text) => {
@@ -29,6 +30,7 @@ export default function Assistant() {
 
   const [mode, setMode] = useState("chat");
   const [showPanel, setShowPanel] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
 
 
   const [messages, setMessages] = useState([
@@ -42,6 +44,55 @@ export default function Assistant() {
   const [usageSnapshot, setUsageSnapshot] = useState({});
   const [isTracking, setIsTracking] = useState(false);
   const [sessionData, setSessionData] = useState(null);
+
+  // Local tracking state (Fallback/Browser Mode)
+  const [localSessionStart, setLocalSessionStart] = useState(Date.now());
+  const [isSessionPaused, setIsSessionPaused] = useState(false);
+  const [localActivities, setLocalActivities] = useState([]);
+  const [elapsedTime, setElapsedTime] = useState(0);
+
+  // Timer for session duration
+  useEffect(() => {
+    let interval;
+    if (!isSessionPaused) {
+      interval = setInterval(() => {
+        setElapsedTime(prev => prev + 1000);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isSessionPaused]);
+
+  const logActivity = (action, detail, type = 'neutral') => {
+    if (isSessionPaused && type !== 'system') return; // Don't log if paused, unless system event
+
+    // Determine color based on type
+    let color = '#34C759'; // Default Safe (Green)
+    if (type === 'high') color = '#FF3B30'; // Red
+    if (type === 'medium') color = '#FF9500'; // Orange
+    if (type === 'neutral') color = '#8E8E93'; // Gray
+
+    setLocalActivities(prev => [{
+      time: Date.now(),
+      action,
+      detail,
+      color
+    }, ...prev]);
+  };
+
+  const toggleSession = () => {
+    if (isSessionPaused) {
+      // Resume
+      setIsSessionPaused(false);
+      logActivity("Session Resumed", "User manually resumed tracking", "safe");
+    } else {
+      // Pause
+      logActivity("Session Paused", "User manually paused tracking", "neutral");
+      setIsSessionPaused(true);
+    }
+  };
+
+
+
 
 
   const [currentURL, setCurrentURL] = useState("");
@@ -133,6 +184,8 @@ export default function Assistant() {
         setRiskLevel("safe");
       }
     });
+    // Initial Activity
+    logActivity("System Verified", "Governance Guard Initialized", "safe");
   }, []);
 
 
@@ -168,6 +221,7 @@ export default function Assistant() {
       setMessages(prev => [...prev, { role: "assistant", text: data.reply }]);
     } catch (e) {
       setMessages(prev => [...prev, { role: "assistant", text: "Sorry, I couldn't reach the server." }]);
+      logActivity("User Input", "Compliance Query Sent", "neutral");
     } finally {
       setIsThinking(false);
     }
@@ -183,6 +237,7 @@ export default function Assistant() {
     setScanResult(null);
     setRiskLevel("safe");
     window.electronAPI?.scanURL?.(url);
+    logActivity("Scan Initiated", `Analyzing ${new URL(url).hostname}`, "neutral");
   };
 
 
@@ -245,187 +300,228 @@ export default function Assistant() {
 
 
   return (
-    <div style={styles.wrapper}>
+    <>
+      {showDashboard && (
+        <Dashboard
+          sessionData={sessionData}
+          scanResult={scanResult}
+          currentURL={currentURL}
+          // Pass local tracking data
+          localSessionStart={localSessionStart}
+          localActivities={localActivities}
+          elapsedTime={elapsedTime}
+          isPaused={isSessionPaused}
+          onToggleSession={toggleSession}
+          onClose={() => setShowDashboard(false)}
+        />
+      )}
+      {!showDashboard && (
+        <div style={styles.wrapper}>
 
-      <div
-        style={{
-          ...styles.cat,
-          filter: `drop-shadow(0 0 30px ${getGlowColor()})`
-        }}
-        onMouseDown={handleMouseDown}
-        onMouseEnter={() => window.electronAPI?.enableClicks()}
-        onMouseLeave={() => window.electronAPI?.disableClicks()}
-      >
-        <Lottie animationData={catAnimation} loop />
-      </div>
-
-
-      {showPanel && (
-        <div
-          style={{
-            ...styles.panel,
-            background: mode === 'compliance' ? 'rgba(255,255,255,0.95)' : 'rgba(255, 255, 255, 0.85)',
-            border: mode === 'compliance' ? `2px solid ${getStatusColor()}` : 'none'
-          }}
-          className="glass-panel"
-          onMouseEnter={() => window.electronAPI?.enableClicks()}
-          onMouseLeave={() => window.electronAPI?.disableClicks()}
-        >
-
-          <div style={{
-            ...styles.header,
-            background: mode === 'compliance' ? `linear-gradient(90deg, ${getStatusColor()}11, transparent)` : 'rgba(255,255,255,0.5)'
-          }}>
-            <div style={styles.headerTitle}>
-              {mode === 'compliance' ? 'Digital Governance Guard' : 'FutureSafe AI'}
-            </div>
-            <div style={styles.riskBadge}>
-              <div style={{ ...styles.statusDot, background: getStatusColor() }} />
-              {getStatusText()}
-            </div>
+          <div
+            style={{
+              ...styles.cat,
+              filter: `drop-shadow(0 0 30px ${getGlowColor()})`
+            }}
+            onMouseDown={handleMouseDown}
+            onMouseEnter={() => window.electronAPI?.enableClicks()}
+            onMouseLeave={() => window.electronAPI?.disableClicks()}
+          >
+            <Lottie animationData={catAnimation} loop />
           </div>
 
 
-          <div style={styles.content}>
+          {showPanel && (
+            <div
+              style={{
+                ...styles.panel,
+                background: mode === 'compliance' ? 'rgba(255,255,255,0.95)' : 'rgba(255, 255, 255, 0.85)',
+                border: mode === 'compliance' ? `2px solid ${getStatusColor()}` : 'none'
+              }}
+              className="glass-panel"
+              onMouseEnter={() => window.electronAPI?.enableClicks()}
+              onMouseLeave={() => window.electronAPI?.disableClicks()}
+            >
 
-
-            {mode === "compliance" && (
-              <div style={styles.complianceContainer}>
-
-                <div style={styles.scoreSection}>
-                  <div style={{ fontSize: 48, fontWeight: 800, color: getStatusColor() }}>
-                    {scanResult?.riskScore || 0}
-                  </div>
-                  <div style={{ fontSize: 12, textTransform: 'uppercase', color: '#888', letterSpacing: 1 }}>Risk Score</div>
+              <div style={{
+                ...styles.header,
+                background: mode === 'compliance' ? `linear-gradient(90deg, ${getStatusColor()}11, transparent)` : 'rgba(255,255,255,0.5)'
+              }}>
+                <div style={styles.headerTitle}>
+                  {mode === 'compliance' ? 'Digital Governance Guard' : 'FutureSafe AI'}
                 </div>
+                <div style={styles.riskBadge}>
+                  <div style={{ ...styles.statusDot, background: getStatusColor() }} />
+                  {getStatusText()}
+                </div>
+              </div>
 
 
-                {scanResult?.summary && (
-                  <div style={styles.summaryBox}>
-                    {scanResult.summary}
+              <div style={styles.content}>
+
+
+                {mode === "compliance" && (
+                  <div style={styles.complianceContainer}>
+
+                    <div style={styles.scoreSection}>
+                      <div style={{ fontSize: 48, fontWeight: 800, color: getStatusColor() }}>
+                        {scanResult?.riskScore || 0}
+                      </div>
+                      <div style={{ fontSize: 12, textTransform: 'uppercase', color: '#888', letterSpacing: 1 }}>Risk Score</div>
+                    </div>
+
+
+                    {scanResult?.summary && (
+                      <div style={styles.summaryBox}>
+                        {scanResult.summary}
+                      </div>
+                    )}
+
+
+                    <div style={styles.violationsList}>
+                      <div style={{ ...styles.sectionTitle, paddingLeft: 4 }}>Detected Violations</div>
+
+                      {scanResult?.violations?.length > 0 ? (
+                        scanResult.violations.map((v, i) => (
+                          <div key={i} style={styles.violationCard}>
+                            <div style={styles.violationHeader}>
+                              <span style={styles.actName}>{v.act}</span>
+                              <span style={{
+                                ...styles.severityBadge,
+                                background: v.severity === 'High' ? '#FFE5E5' : '#FFF4E5',
+                                color: v.severity === 'High' ? '#D70015' : '#D97706'
+                              }}>
+                                {v.severity}
+                              </span>
+                            </div>
+                            <div style={styles.violationReason}>
+                              {v.reason}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div style={styles.safeState}>
+                          <span style={{ fontSize: 24, marginBottom: 8 }}>🛡️</span>
+                          <span>No critical Act violations found.</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
 
-                <div style={styles.violationsList}>
-                  <div style={{ ...styles.sectionTitle, paddingLeft: 4 }}>Detected Violations</div>
 
-                  {scanResult?.violations?.length > 0 ? (
-                    scanResult.violations.map((v, i) => (
-                      <div key={i} style={styles.violationCard}>
-                        <div style={styles.violationHeader}>
-                          <span style={styles.actName}>{v.act}</span>
-                          <span style={{
-                            ...styles.severityBadge,
-                            background: v.severity === 'High' ? '#FFE5E5' : '#FFF4E5',
-                            color: v.severity === 'High' ? '#D70015' : '#D97706'
-                          }}>
-                            {v.severity}
-                          </span>
+                {mode === "chat" && (
+                  <div style={styles.chatContainer}>
+                    <div style={styles.chatList}>
+                      {messages.map((m, i) => (
+                        <div key={i} style={{
+                          ...styles.messageBubble,
+                          alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+                          background: m.role === 'user' ? '#007AFF' : '#F2F2F7',
+                          color: m.role === 'user' ? '#FFF' : '#1C1C1E',
+                        }}>
+                          {m.role === 'assistant' ? (
+                            <ReactMarkdown components={MarkdownComponents}>
+                              {m.text}
+                            </ReactMarkdown>
+                          ) : (
+                            <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
+                          )}
                         </div>
-                        <div style={styles.violationReason}>
-                          {v.reason}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div style={styles.safeState}>
-                      <span style={{ fontSize: 24, marginBottom: 8 }}>🛡️</span>
-                      <span>No critical Act violations found.</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-
-
-            {mode === "chat" && (
-              <div style={styles.chatContainer}>
-                <div style={styles.chatList}>
-                  {messages.map((m, i) => (
-                    <div key={i} style={{
-                      ...styles.messageBubble,
-                      alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-                      background: m.role === 'user' ? '#007AFF' : '#F2F2F7',
-                      color: m.role === 'user' ? '#FFF' : '#1C1C1E',
-                    }}>
-                      {m.role === 'assistant' ? (
-                        <ReactMarkdown components={MarkdownComponents}>
-                          {m.text}
-                        </ReactMarkdown>
-                      ) : (
-                        <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
+                      ))}
+                      {isThinking && (
+                        <div style={{ ...styles.messageBubble, background: '#F2F2F7', color: '#666' }}>...</div>
                       )}
+                      <div ref={chatEndRef} />
                     </div>
-                  ))}
-                  {isThinking && (
-                    <div style={{ ...styles.messageBubble, background: '#F2F2F7', color: '#666' }}>...</div>
-                  )}
-                  <div ref={chatEndRef} />
-                </div>
-                <div style={styles.inputArea}>
-                  <input
-                    style={styles.input}
-                    placeholder="Ask about compliance..."
-                    value={input}
-                    onChange={e => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                  />
-                  <button style={styles.sendBtn} onClick={sendMessage}>→</button>
-                </div>
-              </div>
-            )}
-
-
-            {mode === "tracking" && (
-              <div style={styles.trackingContainer}>
-                <div style={styles.sectionTitle}>System Status</div>
-                <div style={styles.infoCard}>
-                  <div style={styles.label}>Active Website</div>
-                  <div style={styles.value}>{currentURL ? new URL(currentURL).hostname : "None"}</div>
-                </div>
-
-                <div style={styles.infoCard}>
-                  <div style={styles.label}>Active App</div>
-                  <div style={styles.value}>{currentApp || "Desktop"}</div>
-                </div>
-
-                <div style={styles.sectionTitle}>Session</div>
-                <div style={styles.infoCard}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Tracking Active</span>
-                    <input type="checkbox" checked={isTracking} readOnly />
+                    <div style={styles.inputArea}>
+                      <input
+                        style={styles.input}
+                        placeholder="Ask about compliance..."
+                        value={input}
+                        onChange={e => setInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                      />
+                      <button style={styles.sendBtn} onClick={sendMessage}>→</button>
+                    </div>
                   </div>
-                </div>
+                )}
+
+
+                {mode === "tracking" && (
+                  <div style={styles.trackingContainer}>
+                    <div style={styles.sectionTitle}>System Status</div>
+                    <div style={styles.infoCard}>
+                      <div style={styles.label}>Active Website</div>
+                      <div style={styles.value}>{currentURL ? new URL(currentURL).hostname : "None"}</div>
+                    </div>
+
+                    <div style={styles.infoCard}>
+                      <div style={styles.label}>Active App</div>
+                      <div style={styles.value}>{currentApp || "Desktop"}</div>
+                    </div>
+
+                    <div style={styles.sectionTitle}>Session</div>
+                    <div style={styles.infoCard}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Tracking Active</span>
+                        <input type="checkbox" checked={isTracking} readOnly />
+                      </div>
+                    </div>
+
+                    <div style={{ padding: '10px 0' }}>
+                      <button
+                        style={{
+                          width: '100%',
+                          padding: '12px',
+                          background: '#007AFF',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '12px',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          boxShadow: '0 4px 12px rgba(0,122,255,0.3)'
+                        }}
+                        onClick={() => {
+                          setShowDashboard(true);
+                          logActivity("Access", "User viewed Session Report", "safe");
+                        }}
+                      >
+                        View Full Session Report
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
 
-          <div style={styles.tabBar}>
-            <button
-              style={{ ...styles.tabBtn, opacity: mode === 'chat' ? 1 : 0.4, color: '#007AFF' }}
-              onClick={() => setMode('chat')}
-            >
-              Chat
-            </button>
-            <button
-              style={{ ...styles.tabBtn, opacity: mode === 'compliance' ? 1 : 0.4, color: '#FF3B30' }}
-              onClick={() => setMode('compliance')}
-            >
-              Compliance
-            </button>
-            <button
-              style={{ ...styles.tabBtn, opacity: mode === 'tracking' ? 1 : 0.4, color: '#8E8E93' }}
-              onClick={() => setMode('tracking')}
-            >
-              System
-            </button>
-          </div>
+              <div style={styles.tabBar}>
+                <button
+                  style={{ ...styles.tabBtn, opacity: mode === 'chat' ? 1 : 0.4, color: '#007AFF' }}
+                  onClick={() => setMode('chat')}
+                >
+                  Chat
+                </button>
+                <button
+                  style={{ ...styles.tabBtn, opacity: mode === 'compliance' ? 1 : 0.4, color: '#FF3B30' }}
+                  onClick={() => setMode('compliance')}
+                >
+                  Compliance
+                </button>
+                <button
+                  style={{ ...styles.tabBtn, opacity: mode === 'tracking' ? 1 : 0.4, color: '#8E8E93' }}
+                  onClick={() => setMode('tracking')}
+                >
+                  System
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -719,22 +815,22 @@ const styles = {
 
 const styleSheet = document.createElement("style");
 styleSheet.innerText = `
-@keyframes popIn {
-  from { opacity: 0; transform: scale(0.95) translateY(10px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
+      @keyframes popIn {
+        from {opacity: 0; transform: scale(0.95) translateY(10px); }
+      to {opacity: 1; transform: scale(1) translateY(0); }
 }
-.glass-panel:hover {
-    box-shadow: 0 30px 60px -10px rgba(0,0,0,0.3);
+      .glass-panel:hover {
+        box - shadow: 0 30px 60px -10px rgba(0,0,0,0.3);
 }
-::-webkit-scrollbar {
-  width: 6px;
+      ::-webkit-scrollbar {
+        width: 6px;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
+      ::-webkit-scrollbar-track {
+        background: transparent;
 }
-::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.2);
-  borderRadius: 3px;
+      ::-webkit-scrollbar-thumb {
+        background: rgba(0,0,0,0.2);
+      borderRadius: 3px;
 }
-`;
+      `;
 document.head.appendChild(styleSheet);
