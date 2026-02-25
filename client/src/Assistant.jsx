@@ -26,11 +26,26 @@ const MarkdownComponents = {
   strong: (props) => <strong style={{ fontWeight: "600", color: "#333" }} {...props} />,
 };
 
+const VIOLATION_EXPLANATIONS = {
+  "IT Rules": "India's IT Rules 2021 (Rule 3) mandate that intermediaries and e-commerce entities must prominently publish the name and contact details of a Grievance Officer. This ensures users have a guaranteed mechanism for complaint redressal.",
+  "Consumer Protection": "Under the Consumer Protection (E-Commerce) Rules, 2020, entities must display their legal name, principal geographic address, and customer care details. Anomalies here often indicate fraudulent 'fly-by-night' operations.",
+  "DPDP": "The Digital Personal Data Protection Act, 2023 requires that Data Fiduciaries be transparent about data collection. Operating without a clear Privacy Policy or Consent Manager violates the fundamental right to verified consent.",
+  "Global Data Protection": "International standards (GDPR, CCPA, etc.) consider the Privacy Policy as the primary legal disclosure. A site lacking this document is statistically 95% more likely to be illegitimate or a simple phishing front.",
+  "Trust": "Standard heuristics for web safety require verifiable 'Contact Us' or 'About' pages. Sites that hide their physical identity or support channels score high on the scam probability index.",
+  "Transparency": "Terms of Service (ToS) act as the binding legal contract. Operating without visible Terms implies the user has no defined rights, often a tactic used by scam sites to avoid liability."
+};
+
+const getFailureReason = (act) => {
+  const key = Object.keys(VIOLATION_EXPLANATIONS).find(k => act.includes(k));
+  return key ? VIOLATION_EXPLANATIONS[key] : "This violation indicates a failure to meet standard digital governance and safety protocols required for legitimate online operations.";
+};
+
 export default function Assistant() {
 
   const [mode, setMode] = useState("chat");
   const [showPanel, setShowPanel] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
+  const [expandedViolation, setExpandedViolation] = useState(null);
 
 
   const [messages, setMessages] = useState([
@@ -280,9 +295,9 @@ export default function Assistant() {
 
 
   const getGlowColor = () => {
-    if (riskLevel === "high") return "rgba(255, 59, 48, 0.8)";
-    if (riskLevel === "medium") return "rgba(255, 149, 0, 0.8)";
-    return "rgba(52, 199, 89, 0.4)";
+    if (riskLevel === "high") return "rgba(255, 59, 48, 0.9)";
+    if (riskLevel === "medium") return "rgba(255, 149, 0, 0.9)";
+    return "rgba(52, 199, 89, 0.6)";
   };
 
   const getStatusColor = () => {
@@ -321,7 +336,7 @@ export default function Assistant() {
           <div
             style={{
               ...styles.cat,
-              filter: `drop-shadow(0 0 30px ${getGlowColor()})`
+              filter: `drop-shadow(0 0 20px ${getGlowColor()}) drop-shadow(0 0 60px ${getGlowColor()})`
             }}
             onMouseDown={handleMouseDown}
             onMouseEnter={() => window.electronAPI?.enableClicks()}
@@ -383,7 +398,16 @@ export default function Assistant() {
 
                       {scanResult?.violations?.length > 0 ? (
                         scanResult.violations.map((v, i) => (
-                          <div key={i} style={styles.violationCard}>
+                          <div
+                            key={i}
+                            style={{
+                              ...styles.violationCard,
+                              cursor: 'pointer',
+                              transform: expandedViolation === i ? 'scale(1.02)' : 'scale(1)',
+                              border: expandedViolation === i ? '1px solid #007AFF' : '1px solid rgba(0,0,0,0.03)'
+                            }}
+                            onClick={() => setExpandedViolation(expandedViolation === i ? null : i)}
+                          >
                             <div style={styles.violationHeader}>
                               <span style={styles.actName}>{v.act}</span>
                               <span style={{
@@ -397,6 +421,24 @@ export default function Assistant() {
                             <div style={styles.violationReason}>
                               {v.reason}
                             </div>
+
+                            {expandedViolation === i && (
+                              <div style={{
+                                marginTop: '12px',
+                                paddingTop: '12px',
+                                borderTop: '1px dashed rgba(0,0,0,0.1)',
+                                fontSize: '13px',
+                                color: '#333',
+                                background: '#F2F2F7',
+                                padding: '10px',
+                                borderRadius: '8px'
+                              }}>
+                                <div style={{ fontWeight: 700, marginBottom: '4px', fontSize: '11px', color: '#666', textTransform: 'uppercase' }}>
+                                  Why is this a violation?
+                                </div>
+                                {getFailureReason(v.act)}
+                              </div>
+                            )}
                           </div>
                         ))
                       ) : (
